@@ -483,20 +483,65 @@ class Listener(Server):
 
     @staticmethod
     def _is_stale_aux_submission_error(exc):
-        """Treat stale aux templates as stale work, not backend failure.
+        """Recognise the "aux chain moved on, share is orphaned" condition.
 
-        Child daemons can legitimately return "block hash unknown" when a
-        fast parent solve arrives after the aux template has already rolled
-        forward. Retrying the same stale hash is pointless, and marking the
-        child daemon unhealthy just poisons the pool for future work.
+        In merge-mining a parent block carries an `aux_hash` reference to
+        the aux chain's tip-at-the-time. Between us pulling that template
+        (`getauxblock` / `createauxblock`) and submitting our parent solve
+        (`submitauxblock`), the aux chain itself can advance — someone
+        else (or even our own previous submission) extends it. The aux
+        daemon then has no record of the older `aux_hash`, since it has
+        rolled forward, and rejects the submission. The share is orphaned
+        AT THE AUX LAYER — perfectly normal and benign in a merge-mining
+        pool with multiple aux chains and asymmetric block intervals.
+
+        Different aux daemons signal this with different (code, message)
+        shapes:
+
+        - `-8 "block hash unknown"`      — namecoin/blakecoin classic
+        - `-8 "block-not-found"`         — newer bitcoin core descendants
+        - `-8 "hash not found"`          — some forks
+        - `-8 "unknown block"`           — vanilla wording
+        - `-32603` internal-error wrapper around any of the above
+        - `-1`     generic JSON-RPC server-error wrapper
+
+        We accept all of them as "stale, refresh, move on", log INFO,
+        DON'T retry, and DON'T mark the chain unhealthy. The ONLY thing
+        we want to mark unhealthy here is a real backend fault — TCP
+        refused, parse error, daemon crash. Those leave a different
+        signature (httplib/socket exceptions, code -32099 from our own
+        retry layer).
         """
         if exc is None:
             return False
         code = getattr(exc, '_code', None)
-        if code != -8:
-            return False
         message = str(getattr(exc, '_message', '') or exc).lower()
-        return 'block hash unknown' in message
+        # Explicit allowlist only — `'block' in message` was too loose
+        # and silently swallowed real bugs like "Invalid hex string for
+        # block proof". Stale events have one of these specific shapes.
+        stale_keywords = (
+            'block hash unknown',
+            'block-not-found', 'block not found',
+            'hash not found',
+            'unknown block',
+            'not in main chain',
+            'not on best chain',
+            'inconclusive',
+            'stale',
+            'orphan',
+        )
+        is_stale_message = any(k in message for k in stale_keywords)
+        # `-8` (RPC_INVALID_PARAMETER) is the canonical signal in
+        # bitcoin-core derivatives, but we still require an explicit
+        # stale message — `-8` ALSO fires for malformed proofs/hex.
+        if code == -8 and is_stale_message:
+            return True
+        # `-1` / `-32603` are generic JSON-RPC server-error / internal
+        # wrappers some forks return; only stale when the message
+        # itself indicates the rolled-forward case.
+        if code in (-1, -32603) and is_stale_message:
+            return True
+        return False
     
     def status_report_process(self):
         """Log periodic status report of all connections"""
@@ -648,6 +693,17 @@ class Listener(Server):
                 self._mark_chain_healthy(chain)
                 healthy_count += 1
             except Exception as e:
+                if self._is_stale_aux_submission_error(e):
+                    # Daemon answered (just with a stale-hash response),
+                    # so it's responsive — mark healthy in case a prior
+                    # transient had taken it out of rotation.
+                    logger.info(
+                        "%s: aux template fetch saw stale state (%s); refreshing",
+                        get_chain_name(chain),
+                        e,
+                    )
+                    self._mark_chain_healthy(chain)
+                    continue
                 logger.error("%s: Failed to get aux block: %s", get_chain_name(chain), e)
                 self._mark_chain_unhealthy(chain)
                 continue
@@ -842,49 +898,64 @@ class Listener(Server):
                     if aux_hash is None:
                         aux_hash = merkle_tree[chain_merkle_index] if chain_merkle_index < len(merkle_tree) else merkle_root
                     
-                    # Retry logic for block submission - critical operation
-                    max_submit_retries = 3
-                    for submit_attempt in range(max_submit_retries):
-                        try:
-                            logger.debug("%s: Submitting block (attempt %d/%d)", 
-                                         get_chain_name(chain), submit_attempt + 1, max_submit_retries)
-                            logger.info("%s: aux_hash=%s merkle_index=%s", get_chain_name(chain), aux_hash, chain_merkle_index)
-                            if chain < len(merkle_payout_addresses):
-                                payout_address = merkle_payout_addresses[chain]
-                            else:
-                                payout_address = self._get_aux_payout_address(chain)
-                            if payout_address is not None:
-                                result = yield self.auxs[chain].rpc_submitauxblock(aux_hash, auxpow)
-                            else:
-                                result = yield self.auxs[chain].rpc_getauxblock(aux_hash, auxpow)
-                            aux_solved[-1] = result
-                            if result:
-                                logger.info("%s: Block accepted!", get_chain_name(chain))
-                                accepted_details.append((yield fetch_chain_acceptance_details(self.auxs[chain], chain, payout_address=payout_address)))
-                                self._mark_chain_healthy(chain)  # Success confirms chain is healthy
-                            else:
-                                logger.debug("%s: Block not accepted (likely orphan or already submitted)", get_chain_name(chain))
-                            any_solved = any_solved or result
-                            break  # Success - exit retry loop
-                        except Exception as e:
-                            if self._is_stale_aux_submission_error(e):
-                                logger.info(
-                                    "%s: Aux template stale for hash %s; refreshing without marking chain unhealthy",
-                                    get_chain_name(chain),
-                                    aux_hash,
-                                )
-                                stale_aux_submission = True
-                                break
-                            logger.error("%s submission failed (attempt %d/%d): %s", 
-                                         get_chain_name(chain), submit_attempt + 1, max_submit_retries, e)
-                            if submit_attempt < max_submit_retries - 1:
-                                # Wait before retry (exponential backoff)
-                                wait_time = min(0.5 * (2 ** submit_attempt), 3.0)
-                                logger.info("%s: Retrying in %.1fs...", get_chain_name(chain), wait_time)
-                                yield task.deferLater(reactor, wait_time, lambda: None)
-                            else:
-                                logger.error("%s: All submission attempts failed - marking unhealthy", get_chain_name(chain))
-                                self._mark_chain_unhealthy(chain)
+                    # Single submit attempt — `Proxy.callRemote` already
+                    # retries 3x with exponential backoff for transient
+                    # connection errors and trips a circuit breaker. A
+                    # second retry layer here was duplicative (3x3 = 9
+                    # daemon hits per submitauxblock for connection
+                    # faults) and added no value: stale errors break out
+                    # immediately, malformed-proof bugs return identical
+                    # answers on retry. Trust the lower layer; surface a
+                    # single decisive outcome per submit.
+                    logger.info("%s: aux_hash=%s merkle_index=%s",
+                                get_chain_name(chain), aux_hash, chain_merkle_index)
+                    if chain < len(merkle_payout_addresses):
+                        payout_address = merkle_payout_addresses[chain]
+                    else:
+                        payout_address = self._get_aux_payout_address(chain)
+                    try:
+                        if payout_address is not None:
+                            result = yield self.auxs[chain].rpc_submitauxblock(aux_hash, auxpow)
+                        else:
+                            result = yield self.auxs[chain].rpc_getauxblock(aux_hash, auxpow)
+                        aux_solved[-1] = result
+                        if result:
+                            logger.info("%s: Block accepted!", get_chain_name(chain))
+                            accepted_details.append((yield fetch_chain_acceptance_details(self.auxs[chain], chain, payout_address=payout_address)))
+                            # Successful submit confirms chain is healthy.
+                            self._mark_chain_healthy(chain)
+                        else:
+                            # Some daemons signal "aux chain moved past
+                            # this hash" by returning False instead of
+                            # raising -8. Same operational meaning as the
+                            # exception path: share orphaned at the aux
+                            # layer, no retry, daemon answered so it's
+                            # responsive and we can mark it healthy.
+                            logger.info(
+                                "%s: aux daemon returned not-accepted for hash %s "
+                                "(likely orphan or already submitted); refreshing template",
+                                get_chain_name(chain), aux_hash,
+                            )
+                            stale_aux_submission = True
+                            self._mark_chain_healthy(chain)
+                        any_solved = any_solved or result
+                    except Exception as e:
+                        if self._is_stale_aux_submission_error(e):
+                            # Aux chain moved past this share — the share
+                            # is orphaned at the aux layer. Log INFO,
+                            # don't retry, mark chain healthy (the daemon
+                            # just answered, just with a stale-hash
+                            # response — proves it's responsive).
+                            logger.info(
+                                "%s: aux chain moved past hash %s (share orphaned at aux layer); refreshing template",
+                                get_chain_name(chain), aux_hash,
+                            )
+                            stale_aux_submission = True
+                            self._mark_chain_healthy(chain)
+                        else:
+                            logger.error("%s submission failed: %s",
+                                         get_chain_name(chain), e)
+                            self._mark_chain_unhealthy(chain)
 
             accepted_labels = [get_chain_name(i) for i, solve in enumerate(aux_solved) if solve]
             solve_flags = ",".join(["1" if solve else "0" for solve in aux_solved])

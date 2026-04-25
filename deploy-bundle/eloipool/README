@@ -29,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Simple BlakeStream Setup Help
 -----------------------------
 
-This repo is the BlakeStream six-chain merged-mining pool for the 15.21 line.
+This repo is the BlakeStream six-chain merged-mining pool for the 15.21.
 
 It runs:
 
@@ -39,11 +39,11 @@ It runs:
 - `merged-mine-proxy.py3` for the 5 aux chains
 - the BlakeStream dashboard and mining-key flow
 
-The easiest way to test the full six-chain pool on a VPS is:
+The main deploy entrypoint for the full six-chain pool is:
 
 ```bash
 cd /path/to/Blakestream-Eliopool-15.21
-bash deploy-bundle/deploy-full-testnet-stack.sh -local
+bash deploy-bundle/deploy-full-stack.sh -local
 ```
 
 Use one of these two modes:
@@ -52,6 +52,13 @@ Use one of these two modes:
   Build all 6 coin daemons from source on the VPS, then deploy the pool.
 - `-pull`
   Pull the published BlakeStream daemon images from Docker Hub on the VPS, then deploy the pool.
+
+By default, the script deploys `mainnet`.
+
+Set one of these only when you want a different network:
+
+- `NETWORK_MODE=testnet`
+- `NETWORK_MODE=regtest`
 
 Before deployment, the script checks the VPS for existing BlakeStream daemons,
 systemd units, and Docker containers, then tells you what it found. That check
@@ -67,14 +74,14 @@ Simple setup flow:
 
 ```bash
 cd /path/to/Blakestream-Eliopool-15.21
-bash deploy-bundle/deploy-full-testnet-stack.sh -local
+bash deploy-bundle/deploy-full-stack.sh -local
 ```
 
 - Pull the published daemon images on the VPS:
 
 ```bash
 cd /path/to/Blakestream-Eliopool-15.21
-bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+bash deploy-bundle/deploy-full-stack.sh -pull
 ```
 
 3. Set your main pool payout wallet.
@@ -98,7 +105,7 @@ POOL_AUX_ADDRESS_ELT='REPLACE_WITH_ELT_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_LIT='REPLACE_WITH_LIT_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_PHO='REPLACE_WITH_PHO_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_UMO='REPLACE_WITH_UMO_POOL_ADDRESS' \
-bash deploy-bundle/deploy-full-testnet-stack.sh -local
+bash deploy-bundle/deploy-full-stack.sh -local
 ```
 
 Example using Docker Hub daemon images:
@@ -111,7 +118,7 @@ POOL_AUX_ADDRESS_ELT='REPLACE_WITH_ELT_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_LIT='REPLACE_WITH_LIT_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_PHO='REPLACE_WITH_PHO_POOL_ADDRESS' \
 POOL_AUX_ADDRESS_UMO='REPLACE_WITH_UMO_POOL_ADDRESS' \
-bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+bash deploy-bundle/deploy-full-stack.sh -pull
 ```
 
 6. Open the dashboard and test mining.
@@ -122,7 +129,7 @@ bash deploy-bundle/deploy-full-testnet-stack.sh -pull
 Notes:
 
 - the script does not install an SSH key
-- the script does not wipe the host unless you explicitly set `WIPE_REMOTE=1`
+- the script stops existing BlakeStream services before redeploy, but it does not wipe the host or datadirs
 - source mode pulls the upstream coin repos from their `master` branches and builds on the VPS
 - pull mode uses the published `sidgrip/<coin>:15.21` daemon images
 

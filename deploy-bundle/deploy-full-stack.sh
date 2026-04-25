@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# BlakeStream Eloipool 15.21 full merged-mining testnet stack deployer
+# BlakeStream Eloipool 15.21 full merged-mining stack deployer
 #
 # Purpose:
 #   - install the staged Eloipool tree from Blakestream-Eliopool-15.21
-#   - install testnet daemons for all 6 chains
-#   - run a private, isolated -testnet merged-mining stack:
+#   - install daemons for all 6 chains
+#   - run a private, isolated merged-mining stack:
 #       Blakecoin parent + 5 AuxPoW children
 #       merged-mine-proxy
 #       eloipool
@@ -18,16 +18,16 @@ set -euo pipefail
 #   host                : first CLI arg
 #   user                : root
 #   password            : third CLI arg if password auth is needed
-#   install root        : /opt/blakestream-testnet
-#   data root           : /var/lib/blakestream-testnet
-#   log root            : /var/log/blakestream-testnet
+#   install root        : /opt/blakestream-stack
+#   data root           : /var/lib/blakestream-stack
+#   log root            : /var/log/blakestream-stack
 #   dashboard port      : 18081
 #   stratum port        : 3334
 #   miner username      : bare V2 mining key
 #
 # Safety:
-#   This is testnet-only. It does not touch mainnet datadirs unless the
-#   operator explicitly wipes them before running this script.
+#   Network mode defaults to mainnet. Testnet and regtest are explicit
+#   overrides. Existing datadirs are preserved across redeploys.
 # -----------------------------------------------------------------------------
 
 RUN_LOCAL=0
@@ -38,9 +38,9 @@ MODE_FLAG=""
 
 usage() {
     echo "Usage:"
-    echo "  bash deploy-full-testnet-stack.sh <host> [user] [password]"
-    echo "  bash deploy-full-testnet-stack.sh -local [--bootstrap]"
-    echo "  bash deploy-full-testnet-stack.sh -pull [--bootstrap]"
+    echo "  bash deploy-full-stack.sh <host> [user] [password]"
+    echo "  bash deploy-full-stack.sh -local [--bootstrap]"
+    echo "  bash deploy-full-stack.sh -pull [--bootstrap]"
 }
 
 while [ $# -gt 0 ]; do
@@ -97,9 +97,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLE_DIR="${SCRIPT_DIR}"
-INSTALL_ROOT="${INSTALL_ROOT:-/opt/blakestream-testnet}"
-DATA_ROOT="${DATA_ROOT:-/var/lib/blakestream-testnet}"
-LOG_ROOT="${LOG_ROOT:-/var/log/blakestream-testnet}"
+NETWORK_MODE="${NETWORK_MODE:-mainnet}"
+NETWORK_TAG="${NETWORK_MODE}"
+INSTALL_ROOT="${INSTALL_ROOT:-/opt/blakestream-${NETWORK_TAG}}"
+DATA_ROOT="${DATA_ROOT:-/var/lib/blakestream-${NETWORK_TAG}}"
+LOG_ROOT="${LOG_ROOT:-/var/log/blakestream-${NETWORK_TAG}}"
 RUN_USER="${RUN_USER:-blakestream}"
 RUN_GROUP="${RUN_GROUP:-blakestream}"
 PUBLIC_HOST="${PUBLIC_HOST:-$HOST}"
@@ -110,14 +112,12 @@ PROXY_PORT="${PROXY_PORT:-19335}"
 POOL_SECRET_USER="${POOL_SECRET_USER:-auxpow}"
 POOL_SECRET_PASS="${POOL_SECRET_PASS:-auxpow}"
 NODE_RPC_USER="${NODE_RPC_USER:-blakestream}"
-NODE_RPC_PASS="${NODE_RPC_PASS:-blakestream-testnet}"
+NODE_RPC_PASS="${NODE_RPC_PASS:-blakestream-${NETWORK_TAG}}"
 MERKLE_SIZE="${MERKLE_SIZE:-16}"
-WIPE_REMOTE="${WIPE_REMOTE:-0}"
 DAEMON_INSTALL_MODE="${DAEMON_INSTALL_MODE:-${MODE_FLAG:-local}}"
 DOWNLOAD_BOOTSTRAP="${DOWNLOAD_BOOTSTRAP:-false}"
 BOOTSTRAP_BASE_URL="${BOOTSTRAP_BASE_URL:-https://bootstrap.blakestream.io}"
 USE_EXPLORER_PEERS="${USE_EXPLORER_PEERS:-true}"
-NETWORK_MODE="${NETWORK_MODE:-testnet}"
 REPO_SYNC_ROOT="${REPO_SYNC_ROOT:-$ROOT}"
 REMOTE_BUILD_JOBS="${REMOTE_BUILD_JOBS:-$(nproc)}"
 REMOTE_DB4_PREFIX="${REMOTE_DB4_PREFIX:-${INSTALL_ROOT}/db4}"
@@ -473,13 +473,9 @@ render_daemon_unit "$STAGE_ROOT/systemd/blakestream-testnet-photon-peer.service"
 render_daemon_unit "$STAGE_ROOT/systemd/blakestream-testnet-universalmol.service" "UniversalMolecule" "universalmoleculed" "$RPC_PORT_UMO" "$P2P_PORT_UMO" "universalmol" "" "$P2P_PORT_UMO_PEER" "universalmolecule.conf"
 render_daemon_unit "$STAGE_ROOT/systemd/blakestream-testnet-universalmol-peer.service" "UniversalMolecule peer" "universalmoleculed" "$RPC_PORT_UMO_PEER" "$P2P_PORT_UMO_PEER" "universalmol" "-peer" "$P2P_PORT_UMO" "universalmolecule.conf"
 
-if [ "$WIPE_REMOTE" = "1" ]; then
-    say "Wiping prior ${NETWORK_DISPLAY} app/runtime state on the VPS"
-else
-    say "Leaving existing VPS runtime state intact (WIPE_REMOTE=0)"
-fi
+say "Stopping any existing ${NETWORK_DISPLAY} BlakeStream services before redeploy"
 run_ssh \
-    "INSTALL_ROOT=$(quote_remote "$INSTALL_ROOT") DATA_ROOT=$(quote_remote "$DATA_ROOT") LOG_ROOT=$(quote_remote "$LOG_ROOT") WIPE_REMOTE=$(quote_remote "$WIPE_REMOTE") bash -s" <<'REMOTE'
+    "INSTALL_ROOT=$(quote_remote "$INSTALL_ROOT") DATA_ROOT=$(quote_remote "$DATA_ROOT") LOG_ROOT=$(quote_remote "$LOG_ROOT") bash -s" <<'REMOTE'
 set -euo pipefail
 
 (systemctl list-unit-files 'blakestream-testnet-*' --no-legend 2>/dev/null || true) | awk '{print $1}' | while read -r unit; do
@@ -491,11 +487,6 @@ set -euo pipefail
 done
 if command -v docker >/dev/null 2>&1; then
     docker ps -a --format '{{.Names}}' | grep '^blakestream-testnet-' | xargs -r docker rm -f >/dev/null 2>&1 || true
-fi
-
-if [ "${WIPE_REMOTE:-1}" = "1" ]; then
-    rm -f /etc/systemd/system/blakestream-testnet-*.service
-    rm -rf "${INSTALL_ROOT}" "${DATA_ROOT}" "${LOG_ROOT}"
 fi
 systemctl daemon-reload
 REMOTE

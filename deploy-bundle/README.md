@@ -1,6 +1,6 @@
-# Blakestream-Eliopool-15.21 Deploy Bundle
+# Blakestream-Eliopool-15.21 Mainnet Deploy Bundle
 
-This bundle is the deploy/runtime payload for the active post-SegWit release
+This bundle is the live deploy/runtime payload for the public mainnet release
 repo `Blakestream-Eliopool-15.21`.
 
 Active operator contract:
@@ -29,26 +29,33 @@ cd /path/to/Blakestream-Eliopool-15.21
 bash deploy-bundle/deploy.sh <host> [user] [password]
 ```
 
-## Full Testnet Stack
+## Full Six-Chain Deploy
 
-For the self-contained six-chain testnet stack, use:
+For the full six-chain deploy entrypoint, use:
 
 ```bash
 cd /path/to/Blakestream-Eliopool-15.21
-bash deploy-bundle/deploy-full-testnet-stack.sh -local
+bash deploy-bundle/deploy-full-stack.sh -local
 ```
 
 or:
 
 ```bash
 cd /path/to/Blakestream-Eliopool-15.21
-bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+bash deploy-bundle/deploy-full-stack.sh -pull
 ```
 
-`deploy-full-testnet-stack.sh` supports only 2 daemon modes:
+`deploy-full-stack.sh` supports only 2 daemon modes:
 
 - `-local` builds the six coin daemons from source on the VPS
 - `-pull` pulls the published `sidgrip/<coin>:15.21` daemon images on the VPS
+
+By default, the script deploys `mainnet`.
+
+Set one of these only when you want a different network:
+
+- `NETWORK_MODE=testnet`
+- `NETWORK_MODE=regtest`
 
 Before deploying, it scans the target for existing BlakeStream systemd units,
 daemon processes, and Docker containers and prints a summary of what it found.
@@ -62,7 +69,7 @@ Important release settings:
   - `DAEMON_INSTALL_MODE=container` pulls `sidgrip/<coin>:15.21` images and runs them locally with Docker
   - `DAEMON_INSTALL_MODE=source` clones the upstream coin repos and compiles them on the host
 - `deploy.sh` still discovers the 6 RPC conf files + CLI tools automatically after provisioning
-- `DAEMON_INSTALL_MODE=container` is the preferred testing path right now
+- `DAEMON_INSTALL_MODE=container` is the preferred Docker deployment path
 - source mode is wired to the upstream repo/branch map from the six coin build scripts:
   - Blakecoin `https://github.com/BlueDragon747/Blakecoin.git` `master`
   - BlakeBitcoin `https://github.com/BlakeBitcoin/BlakeBitcoin.git` `master`
@@ -86,19 +93,9 @@ DAEMON_IMAGE_TAG=15.21 \
 bash deploy-bundle/deploy.sh <host> [user] [password]
 ```
 
-## Clean-Host Behavior
+## Redeploy Behavior
 
-With `WIPE_REMOTE=1`, the deploy script stops the old services, removes the
-old install root under `/opt/blakecoin-pool`, removes old pool logs under
-`/var/log/blakecoin-pool`, and deploys the current bundle cleanly.
+The deploy script stops any existing BlakeStream services and containers that
+match the managed stack, then redeploys the current bundle.
 
-It does not wipe any of the six coin datadirs.
-
-If you want the daemon installer layer reset as well, set:
-
-- `WIPE_DAEMON_INSTALL=1`
-
-## Archived Pre-SegWit Line
-
-The preserved pre-SegWit tree is intentionally local-only and is not part of
-the public release repo.
+It does not wipe the host or remove the six coin datadirs.

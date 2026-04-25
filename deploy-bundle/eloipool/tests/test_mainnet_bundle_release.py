@@ -37,7 +37,7 @@ class TestMainnetBundleRelease(unittest.TestCase):
     def test_deploy_scripts_parse(self):
         for script in (
             BUNDLE / "deploy.sh",
-            BUNDLE / "deploy-full-testnet-stack.sh",
+            BUNDLE / "deploy-full-stack.sh",
             BUNDLE / "scripts" / "provision-daemons-remote.sh",
             BUNDLE / "scripts" / "build-runtime-daemon-images.sh",
         ):
@@ -136,14 +136,13 @@ class TestMainnetBundleRelease(unittest.TestCase):
         self.assertIn('PRIMARY_TAG="15.21"', script)
         self.assertIn("docker build --pull", script)
 
-    def test_full_testnet_deployer_supports_local_and_pull_modes_without_default_wipe(self):
-        script = (BUNDLE / "deploy-full-testnet-stack.sh").read_text()
+    def test_full_deployer_supports_local_and_pull_modes_without_wipe_options(self):
+        script = (BUNDLE / "deploy-full-stack.sh").read_text()
         self.assertIn('DAEMON_INSTALL_MODE="${DAEMON_INSTALL_MODE:-${MODE_FLAG:-local}}"', script)
-        self.assertIn('WIPE_REMOTE="${WIPE_REMOTE:-0}"', script)
         self.assertIn("https://github.com/BlueDragon747/Blakecoin.git", script)
         self.assertIn("https://github.com/BlakeBitcoin/BlakeBitcoin.git", script)
-        self.assertIn('bash deploy-full-testnet-stack.sh -pull', script)
-        self.assertIn('bash deploy-full-testnet-stack.sh -local', script)
+        self.assertIn('bash deploy-full-stack.sh -pull', script)
+        self.assertIn('bash deploy-full-stack.sh -local', script)
         self.assertIn('expected local or pull', script)
         self.assertIn('detected using currently running daemons', script)
         self.assertIn('docker pull "${image}"', script)

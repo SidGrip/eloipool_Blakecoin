@@ -27,11 +27,9 @@
 #   DAEMON_INSTALL_ROOT=/opt/blakestream-daemons
 #   DAEMON_IMAGE_NAMESPACE=sidgrip
 #   DAEMON_IMAGE_TAG=15.21
-#   WIPE_DAEMON_INSTALL=0|1
 #   STRATUM_PORT=3334
 #   DASHBOARD_PORT=8080
 #   PUBLIC_HOST=pool.example.com
-#   WIPE_REMOTE=1
 #   MINING_KEY_SEGWIT_HRP=blc
 #   DASH_MINING_KEY_V2_COIN_HRPS='{"BlakeBitcoin":"bbtc",...}'
 #   TRACKER_ADDR=B...
@@ -66,7 +64,6 @@ DAEMON_INSTALL_MODE="${DAEMON_INSTALL_MODE:-existing}"
 DAEMON_INSTALL_ROOT="${DAEMON_INSTALL_ROOT:-/opt/blakestream-daemons}"
 DAEMON_IMAGE_NAMESPACE="${DAEMON_IMAGE_NAMESPACE:-sidgrip}"
 DAEMON_IMAGE_TAG="${DAEMON_IMAGE_TAG:-15.21}"
-WIPE_DAEMON_INSTALL="${WIPE_DAEMON_INSTALL:-0}"
 POOL_USER="${POOL_USER:-blakecoin}"
 POOL_GROUP="${POOL_GROUP:-blakecoin}"
 PUBLIC_HOST="${PUBLIC_HOST:-$HOST}"
@@ -84,7 +81,6 @@ POOL_SECRET_USER="${POOL_SECRET_USER:-auxpow}"
 POOL_SECRET_PASS="${POOL_SECRET_PASS:-auxpow}"
 COINBASER_WINDOW="${COINBASER_WINDOW:-500}"
 COINBASER_POOL_KEEP_BPS="${COINBASER_POOL_KEEP_BPS:-100}"
-WIPE_REMOTE="${WIPE_REMOTE:-1}"
 UFW_ENABLE="${UFW_ENABLE:-1}"
 
 DEFAULT_V2_COIN_HRPS='{"BlakeBitcoin":"bbtc","Electron":"elt","Lithium":"lit","Photon":"pho","UniversalMolecule":"umo"}'
@@ -214,7 +210,6 @@ provision_remote_daemons() {
                  DAEMON_INSTALL_ROOT=$(quote_remote "$DAEMON_INSTALL_ROOT") \
                  DAEMON_IMAGE_NAMESPACE=$(quote_remote "$DAEMON_IMAGE_NAMESPACE") \
                  DAEMON_IMAGE_TAG=$(quote_remote "$DAEMON_IMAGE_TAG") \
-                 WIPE_DAEMON_INSTALL=$(quote_remote "$WIPE_DAEMON_INSTALL") \
                  bash -s" < "${BUNDLE_DIR}/scripts/provision-daemons-remote.sh"
             ;;
         *)
@@ -534,27 +529,13 @@ PROXY_ARGS+=" -x ${LIT_RPC_URL} -a ${POOL_AUX_ADDRESS_LIT}"
 PROXY_ARGS+=" -x ${PHO_RPC_URL} -a ${POOL_AUX_ADDRESS_PHO}"
 PROXY_ARGS+=" -x ${UMO_RPC_URL} -a ${POOL_AUX_ADDRESS_UMO}"
 
-if [ "$WIPE_REMOTE" = "1" ]; then
-    say "Wiping prior pool install from the remote host"
-    run_ssh \
-        "INSTALL_ROOT=$(quote_remote "$INSTALL_ROOT") LOG_ROOT=$(quote_remote "$LOG_ROOT") bash -s" <<'REMOTE'
+say "Stopping existing pool services before redeploy"
+run_ssh "bash -s" <<'REMOTE'
 set -euo pipefail
-
-install_root="${INSTALL_ROOT:-/opt/blakecoin-pool}"
-log_root="${LOG_ROOT:-/var/log/blakecoin-pool}"
-
 for svc in blakecoin-pool blakecoin-pool-proxy blakecoin-pool-dashboard; do
-    systemctl disable --now "$svc" >/dev/null 2>&1 || true
+    systemctl stop "$svc" >/dev/null 2>&1 || true
 done
-rm -f /etc/systemd/system/blakecoin-pool.service
-rm -f /etc/systemd/system/blakecoin-pool-proxy.service
-rm -f /etc/systemd/system/blakecoin-pool-dashboard.service
-systemctl daemon-reload
-
-rm -rf "$install_root"
-rm -rf "$log_root"
 REMOTE
-fi
 
 say "Creating ${INSTALL_ROOT} and ${LOG_ROOT}"
 run_ssh \

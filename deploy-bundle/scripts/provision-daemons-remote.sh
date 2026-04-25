@@ -5,7 +5,6 @@ MODE="${DAEMON_INSTALL_MODE:-existing}"
 INSTALL_ROOT="${DAEMON_INSTALL_ROOT:-/opt/blakestream-daemons}"
 IMAGE_NAMESPACE="${DAEMON_IMAGE_NAMESPACE:-sidgrip}"
 IMAGE_TAG="${DAEMON_IMAGE_TAG:-15.21}"
-WIPE_INSTALL="${WIPE_DAEMON_INSTALL:-0}"
 SOURCE_ROOT="${INSTALL_ROOT}/source"
 BUILD_JOBS="${DAEMON_BUILD_JOBS:-$(nproc)}"
 DB4_PREFIX="${INSTALL_ROOT}/db4"
@@ -192,12 +191,6 @@ provision_container_mode() {
     say "Installing Docker runtime"
     ensure_docker_stack
 
-    if [ "${WIPE_INSTALL}" = "1" ]; then
-        say "Wiping managed daemon install root"
-        docker compose -f "${compose_file}" down --remove-orphans >/dev/null 2>&1 || true
-        rm -rf "${INSTALL_ROOT}"
-    fi
-
     mkdir -p "${INSTALL_ROOT}"
 
     {
@@ -240,17 +233,6 @@ provision_source_mode() {
     say "Installing source-build dependencies"
     ensure_apt build-essential autoconf automake libtool pkg-config git ca-certificates wget curl libssl-dev libevent-dev libminiupnpc-dev libboost-all-dev
     build_db4
-
-    if [ "${WIPE_INSTALL}" = "1" ]; then
-        say "Stopping managed source daemons"
-        for row in "${CHAINS[@]}"; do
-            IFS='|' read -r key label daemon_name cli_name tx_name conf_name config_dir datadir rpc_port p2p_port repo_url repo_branch <<< "${row}"
-            systemctl disable --now "blakestream-mainnet-${key}" >/dev/null 2>&1 || true
-            rm -f "/etc/systemd/system/blakestream-mainnet-${key}.service"
-            rm -rf "/opt/${key}-current"
-        done
-        rm -rf "${SOURCE_ROOT}"
-    fi
 
     mkdir -p "${SOURCE_ROOT}"
 

@@ -162,8 +162,20 @@ class TestAuxPowPerSolver(unittest.TestCase):
         err = self.proxy.Error(-8, "block hash unknown", "")
         self.assertTrue(self.proxy.Listener._is_stale_aux_submission_error(err))
 
+    def test_wrapped_block_not_found_is_treated_as_stale_aux_submission(self):
+        err = self.proxy.Error(-32603, "internal error: block-not-found", "")
+        self.assertTrue(self.proxy.Listener._is_stale_aux_submission_error(err))
+
+    def test_generic_orphan_wording_is_treated_as_stale_aux_submission(self):
+        err = self.proxy.Error(-1, "share orphaned after aux chain advanced", "")
+        self.assertTrue(self.proxy.Listener._is_stale_aux_submission_error(err))
+
     def test_unrelated_rpc_error_is_not_treated_as_stale_aux_submission(self):
         err = self.proxy.Error(-1, "misc error", "")
+        self.assertFalse(self.proxy.Listener._is_stale_aux_submission_error(err))
+
+    def test_internal_error_without_stale_keywords_is_not_treated_as_stale_aux_submission(self):
+        err = self.proxy.Error(-32603, "database flush failed", "")
         self.assertFalse(self.proxy.Listener._is_stale_aux_submission_error(err))
 
 
