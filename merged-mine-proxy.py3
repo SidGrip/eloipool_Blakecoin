@@ -483,6 +483,13 @@ class Listener(Server):
 
     @staticmethod
     def _is_stale_aux_submission_error(exc):
+        # 15.21 change:
+        # Treat normal aux-chain roll-forward/orphan cases as benign.
+        # Older behavior could spam retries / error logs for shares that
+        # were simply orphaned because the aux chain advanced between
+        # template fetch and submitauxblock. We now detect those stale
+        # signatures explicitly so they refresh quietly and do not mark
+        # the aux daemon unhealthy.
         """Recognise the "aux chain moved on, share is orphaned" condition.
 
         In merge-mining a parent block carries an `aux_hash` reference to
