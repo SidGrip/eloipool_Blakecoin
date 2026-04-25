@@ -1,0 +1,362 @@
+# Please note that config files are Python source code!
+# A common mistake is to put an option list (such as TemplateChecks,
+# JSONRPCAddresses, etc) excluding the final comma.
+# For example (this is WRONG):
+#     JSONRPCAddresses = (
+#         ('', 8337)  # <-- there must be a comma after EVERY item, even last
+#     )
+# Without the final comma, should the option list ever have only one item in
+# it, Python would interpret the "main" parenthesis as a mere sub-expression
+# instead of a list of values. If that occurs, you might get crazy errors, or
+# things might just not work correctly. Be careful to not miss the commas.
+
+### Settings relating to server identity
+
+# Name of the server
+ServerName = 'BlakeStream Eloipool 15.21 Staging'
+
+# BlakeStream 15.21 defaults.
+# This file still configures the parent Blakecoin Eloipool process, but the
+# values below carry the six-chain default port map and the matching aux-chain
+# metadata used by the merged-mine proxy side of the stack.
+PARENT_RPC_HOST = '127.0.0.1'
+PARENT_RPC_USER = 'user'
+PARENT_RPC_PASS = 'pass'
+PARENT_RPC_PORT = 8772
+PARENT_P2P_PORT = 8773
+PARENT_RPC_URI = 'http://%s:%s@%s:%d/' % (
+	PARENT_RPC_USER,
+	PARENT_RPC_PASS,
+	PARENT_RPC_HOST,
+	PARENT_RPC_PORT,
+)
+
+POOL_JSONRPC_PORT = 19334
+STRATUM_PORT = 3334
+PROXY_PORT = 19335
+POOL_SECRET_USER = 'auxpow'
+POOL_SECRET_PASS = 'auxpow'
+PARENT_GOTWORK_URI = 'http://%s:%s@127.0.0.1:%d/' % (
+	POOL_SECRET_USER,
+	POOL_SECRET_PASS,
+	PROXY_PORT,
+)
+
+BLAKESTREAM_V2_COIN_HRPS = {
+	'BlakeBitcoin': 'bbtc',
+	'Electron': 'elt',
+	'Lithium': 'lit',
+	'Photon': 'pho',
+	'UniversalMolecule': 'umo',
+}
+
+BLAKESTREAM_POOL_AUX_ADDRESSES = {
+	'BlakeBitcoin': 'REPLACE_WITH_BBTC_POOL_ADDRESS',
+	'Electron': 'REPLACE_WITH_ELT_POOL_ADDRESS',
+	'Lithium': 'REPLACE_WITH_LIT_POOL_ADDRESS',
+	'Photon': 'REPLACE_WITH_PHO_POOL_ADDRESS',
+	'UniversalMolecule': 'REPLACE_WITH_UMO_POOL_ADDRESS',
+}
+
+BLAKESTREAM_AUX_CHAINS = (
+	{
+		'label': 'BlakeBitcoin',
+		'ticker': 'BBTC',
+		'rpc_port': 8243,
+		'p2p_port': 8356,
+		'rpc_uri': 'http://user:pass@127.0.0.1:8243/',
+		'hrp': 'bbtc',
+		'pool_address': BLAKESTREAM_POOL_AUX_ADDRESSES['BlakeBitcoin'],
+	},
+	{
+		'label': 'Electron',
+		'ticker': 'ELT',
+		'rpc_port': 6852,
+		'p2p_port': 6853,
+		'rpc_uri': 'http://user:pass@127.0.0.1:6852/',
+		'hrp': 'elt',
+		'pool_address': BLAKESTREAM_POOL_AUX_ADDRESSES['Electron'],
+	},
+	{
+		'label': 'Lithium',
+		'ticker': 'LIT',
+		'rpc_port': 12000,
+		'p2p_port': 12007,
+		'rpc_uri': 'http://user:pass@127.0.0.1:12000/',
+		'hrp': 'lit',
+		'pool_address': BLAKESTREAM_POOL_AUX_ADDRESSES['Lithium'],
+	},
+	{
+		'label': 'Photon',
+		'ticker': 'PHO',
+		'rpc_port': 8984,
+		'p2p_port': 35556,
+		'rpc_uri': 'http://user:pass@127.0.0.1:8984/',
+		'hrp': 'pho',
+		'pool_address': BLAKESTREAM_POOL_AUX_ADDRESSES['Photon'],
+	},
+	{
+		'label': 'UniversalMolecule',
+		'ticker': 'UMO',
+		'rpc_port': 5921,
+		'p2p_port': 24785,
+		'rpc_uri': 'http://user:pass@127.0.0.1:5921/',
+		'hrp': 'umo',
+		'pool_address': BLAKESTREAM_POOL_AUX_ADDRESSES['UniversalMolecule'],
+	},
+)
+
+# Example merged-mine proxy launch using the six-chain defaults above:
+# python3 merged-mine-proxy.py3 -w %d -p http://%s:%s@127.0.0.1:%d/ -s 16 \
+#   -x %s -a %s \
+#   -x %s -a %s \
+#   -x %s -a %s \
+#   -x %s -a %s \
+#   -x %s -a %s
+# % (
+#   PROXY_PORT,
+#   POOL_SECRET_USER, POOL_SECRET_PASS, POOL_JSONRPC_PORT,
+#   BLAKESTREAM_AUX_CHAINS[0]['rpc_uri'], BLAKESTREAM_AUX_CHAINS[0]['pool_address'],
+#   BLAKESTREAM_AUX_CHAINS[1]['rpc_uri'], BLAKESTREAM_AUX_CHAINS[1]['pool_address'],
+#   BLAKESTREAM_AUX_CHAINS[2]['rpc_uri'], BLAKESTREAM_AUX_CHAINS[2]['pool_address'],
+#   BLAKESTREAM_AUX_CHAINS[3]['rpc_uri'], BLAKESTREAM_AUX_CHAINS[3]['pool_address'],
+#   BLAKESTREAM_AUX_CHAINS[4]['rpc_uri'], BLAKESTREAM_AUX_CHAINS[4]['pool_address'],
+# )
+
+### Settings relating to server scaling/load
+
+# Share hashes must be below this to be valid shares
+# If dynamic targetting is enabled, this is a minimum
+ShareTarget = 0x00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+# Automatically adjust targets per username
+# 0 = disabled
+# 1 = arbitrary targets
+# 2 = power of two difficulties (zero bit counts)
+DynamicTargetting = 0
+
+# Mainnet staging keeps local share difficulty at or below the network target
+# unless an operator explicitly decides otherwise for a separate rehearsal.
+AllowShareDifficultyAboveNetwork = False
+
+# How many shares per minute to try to achieve on average
+DynamicTargetGoal = 8
+
+# Number of seconds hashrate is measured over
+DynamicTargetWindow = 120
+
+# Should we try to adjust the target quickly when there are a lot of shares?
+DynamicTargetQuick = True
+
+# Minimum and maximum of merkle roots to keep queued
+WorkQueueSizeRegular = (0x100, 0x1000)
+
+# Minimum and maximum of BLANK merkle roots to keep queued
+# (used if we run out of populated ones)
+WorkQueueSizeClear = (0x1000, 0x2000)
+
+# Minimum and maximum of BLANK merkle roots to keep queued, one height up
+# (used for longpolls)
+WorkQueueSizeLongpoll = (0x1000, 0x2000)
+
+# How often to send new jobs to miners
+WorkUpdateInterval = 55
+
+# How long to wait between bitcoind GBT updates normally
+MinimumTxnUpdateWait = 5
+
+# How long to wait between retries if blakecoind request fails
+TxnUpdateRetryWait = 1
+
+# How long to sleep in idle loops (temporary!)
+IdleSleepTime = 0.1
+
+### Settings relating to reward generation
+
+# Address to generate rewards to.
+# Replace with the real Blakecoin mainnet pool payout address before production.
+TrackerAddr = 'REPLACE_WITH_MAINNET_POOL_ADDRESS'
+
+# Coinbaser command to control reward delegation.
+# %d is replaced with the total value of the block reward (in satoshis)
+# %p is replaced with the previous block hash in hexadecimal
+# The released post-SegWit line keeps TrackerAddr as the pool keep / fallback
+# wallet. Bare 40-char mining-key usernames derive V2 bech32 payouts through
+# the configured HRP set in the deploy environment. Any rounding remainder or
+# misconfigured-miner reward still falls back to TrackerAddr.
+CoinbaserCmd = '/opt/blakecoin-pool/bin/coinbaser.py %d %p'
+
+### Settings relating to upstream data providers
+
+# JSON-RPC servers to get block templates from
+# See https://en.bitcoin.it/wiki/BIP_0023#Logical_Services for key details
+# Blakecoin remains the parent chain here; the five aux chains are attached by
+# merged-mine-proxy.py3 using the BlakeStream defaults declared above.
+TemplateSources = (
+	{
+		'name': 'primary',
+		'uri': PARENT_RPC_URI,
+		'priority': 0,
+		'weight': 1,
+	},
+)
+
+# JSON-RPC servers to check block proposals with
+# If the list provided is empty, and selected source supports proposals, it
+# alone will be used for checking. If TemplateChecks is None, no checking will
+# ever be performed.
+# NOTE: Any servers listed here MUST support BIP 23 Block Proposals
+
+TemplateChecks = None
+
+# JSON-RPC servers to submit found blocks to (when they meet the full target)
+# The specific TemplateSource that the block was based on will always be sent
+# the block first.
+# If setting is not specified, or None, full TemplateSources list will be used.
+# If an empty list, no extra submissions will be attempted.
+# If an empty list, and the block was found on a "clear" merkle root (not based
+# on any TemplateSource), the full TemplateSources list will be used.
+BlockSubmissions = (
+	{
+		'name': 'primary',
+		'uri': PARENT_RPC_URI,
+	},
+)
+
+# Templates will not be used unless they have an acceptance ratio above this
+# Range: 0.00 - 1.00
+MinimumTemplateAcceptanceRatio = 0
+
+# No template with a combined total score below this will be used
+MinimumTemplateScore = 1
+
+# Set to True if you want shares meeting the upstream target to wait for a
+# response from an upstream server before logging them. Otherwise, for such
+# shares, upstreamResult will always be True and upstreamRejectReason will
+# always be None. Note that enabling this may cause shares to be logged out of
+# order, or with the wrong timestamp (if your share logger uses the log-time
+# rather than share-time).
+DelayLogForUpstream = False
+
+# Blakecoin mainnet p2p server for announcing blocks found.
+UpstreamBitcoindNode = ('127.0.0.1', PARENT_P2P_PORT)
+
+# Network ID for Blakecoin mainnet.
+UpstreamNetworkId = b'\xF9\xBE\xB4\xD2'
+
+SecretUser = POOL_SECRET_USER
+
+GotWorkURI = PARENT_GOTWORK_URI
+
+# Share hashes must be below this to be submitted to gotwork
+GotWorkTarget = 0x00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+# Aim to produce blocks with transaction counts that are a power of two
+# This helps avoid any chance of someone abusing CVE-2012-2459 with them
+# 1 = cut out feeless transactions; 2 = cut out even fee-included transactions (if possible)
+POT = 2
+
+# Avoid mining feeless transactions except to satisfy POT
+# Note this only works if POT is in fact enabled in the first place
+Greedy = False
+
+### Settings relating to network services
+# Note that Eloipool only supports IPv6 sockets, and if you want to bind to an
+# IPv4 address you will need to prepend it with ::ffff: eg ::ffff:192.168.1.2
+
+# Addresses to listen on for JSON-RPC GBT/getwork server
+JSONRPCAddresses = (
+	('::ffff:127.0.0.1', POOL_JSONRPC_PORT),
+)
+
+# Addresses to listen on for Stratum mining server
+StratumAddresses = (
+	('0.0.0.0', STRATUM_PORT),
+)
+
+# Addresses to listen on for Bitcoin node
+# Note this will only be used to distribute blocks the pool finds, nothing else
+BitcoinNodeAddresses = ()
+
+# Addresses that are allowed to "spoof" from address with the X-Forwarded-For header
+TrustedForwarders = ('::ffff:127.0.0.1', '127.0.0.1')
+
+
+# Logging of shares:
+ShareLogging = (
+	{
+		'type': 'logfile',
+		'filename': 'share-logfile',
+		'format': "{time} {Q(remoteHost)} {username} {YN(not(rejectReason))} {dash(YN(upstreamResult))} {dash(rejectReason)} {dash(target2bdiff(target))} {dash(_targethex)} {solution}\n",
+	},
+	{
+		'type': 'sql',
+		'engine': 'postgres',
+		'dbopts': {
+			'host': 'localhost',
+			'database': 'pooldb',
+			'user': 'eloipool',
+			'password': 'somethingsecret',
+		},
+		'statement': "insert into shares (rem_host, username, our_result, upstream_result, reason, solution) values ({Q(remoteHost)}, {username}, {YN(not(rejectReason))}, {YN(upstreamResult)}, {rejectReason}, decode({solution}, 'hex'))",
+	},
+	{
+		'type': 'sql',
+		'engine': 'mysql',
+		'dbopts': {
+			'host': 'localhost',
+			'db': 'pooldb',
+			'user': 'eloipool',
+			'password': 'somethingsecret',
+		},
+		'statement': "insert into shares (rem_host, username, our_result, upstream_result, reason, solution) values ({Q(remoteHost)}, {username}, {YN(not(rejectReason))}, {YN(upstreamResult)}, {rejectReason}, unhex({solution}))",
+	},
+	{
+		'type': 'sql',
+		'engine': 'sqlite',
+		'dbopts': {
+			'database': 'share.db',
+		},
+		'statement': "insert into shares (remoteHost, username, rejectReason, upstreamResult, solution) values ({remoteHost}, {username}, {rejectReason}, {upstreamResult}, {solution})",
+	},
+)
+
+# Authentication
+# There currently are 2 modules.
+# - allowall will allow every username/password combination
+# - simplefile will use the username/passwords from a file, which contains username<tab>password\n with no \n on the last line.
+Authentication =  (
+	{
+		'module': 'allowall',
+	},
+#	{
+#		'module': 'simplefile',
+#		'filename': 'userdatabase',
+#	},
+)
+
+### Settings related to poolserver logging
+
+# By default, significant events will be printed to the interactive console
+# You can customize your logging using either simple parameters, or Python's advanced logging framework
+# Note that using Python's logging framework will override the default console logging!
+
+# To simply log everything to the system log (syslog) as well:
+# LogToSysLog = True
+
+# To make a log file:
+# LogFile = 'filename.log'
+
+# For a rotating log file:
+LogFile = {
+	'filename': 'filename.log',
+	'when': 'midnight',
+	'backupCount': 7,
+}
+# For details, see:
+# http://docs.python.org/3/library/logging.handlers.html#logging.handlers.TimedRotatingFileHandler
+
+### Settings related to blockchain parameters
+
+# The subsidy algorithm provided below is specifically for Blakecoin, where:
+# - 5000000000 is the amount of the block reward

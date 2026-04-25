@@ -1,0 +1,25 @@
+[Unit]
+Description=BlakeStream pool dashboard (read-only Flask)
+After=network-online.target blakecoin-pool.service blakecoin-pool-proxy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@POOL_USER@@
+Group=@@POOL_GROUP@@
+WorkingDirectory=@@INSTALL_ROOT@@/dashboard
+EnvironmentFile=@@INSTALL_ROOT@@/dashboard/dashboard.env
+ExecStart=@@INSTALL_ROOT@@/venv/bin/python -u dashboard.py
+StandardInput=null
+StandardOutput=append:@@LOG_ROOT@@/dashboard.stdout
+StandardError=append:@@LOG_ROOT@@/dashboard.stderr
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

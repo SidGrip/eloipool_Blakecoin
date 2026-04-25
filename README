@@ -1,0 +1,290 @@
+Eloipool - Python Bitcoin pool server
+Copyright (C) 2011-2015  Luke Dashjr <luke-jr+eloipool@utopios.org>
+Portions written by Peter Leurs <kinlo@triplemining.com>
+
+Eloipool - Python Blakecoin pool server
+Copyright (c) 2013-2026 The Blakecoin developers
+Portions written by Carlos Pizarro <kr105@kr105.com>
+Portions written by BlueDragon747 for the Blakecoin Project
+
+for the MMP *merged-mine-proxy.py3* licence see: https://github.com/BlueDragon747/eloipool_Blakecoin/blob/master/COPYING
+
+
+Copyright License
+-----------------
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+Simple BlakeStream Setup Help
+-----------------------------
+
+This repo is the BlakeStream six-chain merged-mining pool for the 15.21 line.
+
+It runs:
+
+- Blakecoin as the parent chain
+- BlakeBitcoin, Electron, Lithium, Photon, and UniversalMolecule as aux chains
+- Eloipool for parent-chain stratum / share handling
+- `merged-mine-proxy.py3` for the 5 aux chains
+- the BlakeStream dashboard and mining-key flow
+
+The current deploy entrypoint is:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+bash deploy-bundle/deploy-full-testnet-stack.sh -local
+```
+
+Use one of these two modes:
+
+- `-local`
+  Build all 6 coin daemons from source on the VPS, then deploy the pool.
+- `-pull`
+  Pull the published BlakeStream daemon images from Docker Hub on the VPS, then deploy the pool.
+
+What the script does before it starts any wallet or daemon:
+
+1. checks the VPS for existing BlakeStream daemons, systemd units, and Docker containers
+2. creates the install, data, and log folders
+3. creates each coin data directory
+4. writes each coin config file with RPC credentials and ports
+5. for mainnet only, fetches peers from the explorer and adds them to the config
+6. for mainnet only, downloads `bootstrap.dat` if you pass `--bootstrap`
+7. starts the daemons, then brings up the pool, proxy, dashboard, and miner
+
+That detection step is only a safety summary. It does not switch modes for you.
+
+Quick testnet deploy:
+
+- build from source on the VPS:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+bash deploy-bundle/deploy-full-testnet-stack.sh -local
+```
+
+- pull the published daemon images on the VPS:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+```
+
+Mainnet daemon prep behavior:
+
+- if you set `NETWORK_MODE=mainnet`, the script will create the coin datadirs,
+  write the configs, fetch explorer peers, and optionally download bootstrap
+  files before starting the daemons
+- `--bootstrap` only downloads `bootstrap.dat` in `mainnet` mode
+
+Example mainnet source build with bootstrap:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+NETWORK_MODE=mainnet \
+bash deploy-bundle/deploy-full-testnet-stack.sh -local --bootstrap
+```
+
+Example mainnet Docker Hub deploy with bootstrap:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+NETWORK_MODE=mainnet \
+bash deploy-bundle/deploy-full-testnet-stack.sh -pull --bootstrap
+```
+
+Simple pool setup flow:
+
+1. Clone this repo on the VPS.
+
+2. Pick the deploy mode.
+
+- Build from source on the VPS:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+bash deploy-bundle/deploy-full-testnet-stack.sh -local
+```
+
+- Pull the published daemon images on the VPS:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+```
+
+3. If needed, switch the network mode.
+
+- default today is the testnet entrypoint
+- set `NETWORK_MODE=mainnet` when you want the mainnet config/bootstrap path
+
+4. Set your main pool payout wallet.
+
+- `TrackerAddr` is the main Blakecoin pool wallet
+- it receives the pool keep
+- it also receives any fallback or rounding remainder
+
+5. Set aux pool wallet addresses if you want fixed pool-controlled child-chain
+wallets.
+
+6. Run the deploy script.
+
+Example using local source builds:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+TRACKER_ADDR='REPLACE_WITH_BLC_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_BBTC='REPLACE_WITH_BBTC_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_ELT='REPLACE_WITH_ELT_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_LIT='REPLACE_WITH_LIT_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_PHO='REPLACE_WITH_PHO_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_UMO='REPLACE_WITH_UMO_POOL_ADDRESS' \
+bash deploy-bundle/deploy-full-testnet-stack.sh -local
+```
+
+Example using Docker Hub daemon images:
+
+```bash
+cd /path/to/Blakestream-Eliopool-15.21
+TRACKER_ADDR='REPLACE_WITH_BLC_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_BBTC='REPLACE_WITH_BBTC_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_ELT='REPLACE_WITH_ELT_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_LIT='REPLACE_WITH_LIT_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_PHO='REPLACE_WITH_PHO_POOL_ADDRESS' \
+POOL_AUX_ADDRESS_UMO='REPLACE_WITH_UMO_POOL_ADDRESS' \
+bash deploy-bundle/deploy-full-testnet-stack.sh -pull
+```
+
+7. Open the dashboard and test mining.
+
+- mine to the stratum port shown by the dashboard
+- use a bare mining key or a direct address as the miner username
+
+Notes:
+
+- the script does not install an SSH key
+- the script does not wipe the host unless you explicitly set `WIPE_REMOTE=1`
+- source mode pulls the upstream coin repos from their `master` branches and builds on the VPS
+- pull mode uses the published `sidgrip/<coin>:15.21` daemon images
+- `--bootstrap` is for mainnet only
+- mainnet peer fetch is from the explorer and is written into the generated coin configs
+
+
+Mining Username Format
+----------------------
+
+The released operator path is:
+
+- bare `<40hex>[.worker]` mining key
+
+Examples:
+
+- `a5d3e00343efe51e81d39884a74124ca060fefdd`
+- `a5d3e00343efe51e81d39884a74124ca060fefdd.rig1`
+
+Compatibility path still supported:
+
+- direct payout address usernames
+
+
+Important Files
+---------------
+
+- `config.py.example`
+  The parent Blakecoin Eloipool config example. It includes the BlakeStream
+  six-chain default port map and aux-chain defaults so it is easier to deploy.
+
+- `merged-mine-proxy.py3`
+  The aux-chain merged-mining proxy. This is where the 5 child chains attach.
+
+- `deploy-bundle/deploy-full-testnet-stack.sh`
+  The active deploy entrypoint for the staged six-chain deploy flow.
+
+- `deploy-bundle/config.py.template`
+  The template used by the deploy script to render the live Eloipool config on
+  the target host.
+
+
+
+Default BlakeStream Ports
+-------------------------
+
+Parent chain:
+
+- Blakecoin RPC: `8772`
+- Blakecoin P2P: `8773`
+
+Pool services:
+
+- Stratum: `3334`
+- pool JSON-RPC: `19334`
+- merged-mine proxy: `19335`
+
+Aux chains:
+
+- BlakeBitcoin RPC `8243`, P2P `8356`
+- Electron RPC `6852`, P2P `6853`
+- Lithium RPC `12000`, P2P `12007`
+- Photon RPC `8984`, P2P `35556`
+- UniversalMolecule RPC `5921`, P2P `24785`
+
+
+How Payouts Work
+----------------
+
+- miners submit shares to Eloipool
+- Blakecoin rewards are split by shares
+- aux rewards land in pool-controlled aux wallets first
+- the credited split is tracked by shares for miners
+
+`TrackerAddr` remains the pool keep / fallback wallet.
+
+
+Dependencies
+------------
+Python 3.8+		http://python.org
+python-bitcoinrpc	https://github.com/BlueDragon747/python-bitcoinrpc
+python-base58		https://github.com/BlueDragon747/python-base58
+
+
+Optional Dependencies
+---------------------
+db connector if using a database only need one!
+PyMySQL			http://www.pymysql.org/
+CyMySQL			https://github.com/nakagami/CyMySQL *faster if using Cython
+Psycopg2		http://initd.org/psycopg/
+
+not needed:
+midstate		http://gitorious.org/midstate/midstate *not needed for blake256
+
+
+Merged Mining
+-------------
+Eloipool supports merged mining using the setworkaux/gotwork RPC interface.
+A simple port of namecoin's merged-mine-proxy to this interface is included and modified to allow more AUX chains:
+Portions rewritten for python 3.8+
+
+	https://github.com/BlueDragon747/eloipool_Blakecoin/blob/master/merged-mine-proxy.py3
+
+Dependencies
+------------
+Python 3.8+
+python-twisted
+
+Please be advised that:
+- Eloipool does not provide any interface for longpolling aux chains.
+- Empty and longpoll merkle roots are generated only as-needed, and will NOT be
+  regenerated when CoinbaseAux changes. This means shares found by getwork
+  miners after a longpoll will almost always be stale on your aux chain(s).
+  This problem does not affect GBT or stratum miners.

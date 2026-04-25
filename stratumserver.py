@@ -1,0 +1,422 @@
+# Eloipool - Python Bitcoin pool server
+# Copyright (C) 2011-2013  Luke Dashjr <luke-jr+eloipool@utopios.org>
+# Portions written by BlueDragon747 for the Blakecoin Project
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import agplcompliance
+from binascii import b2a_hex
+import collections
+from copy import deepcopy
+import json
+import logging
+import networkserver
+import socket
+import struct
+from time import time
+import traceback
+from util import RejectedShare, swap32, target2bdiff, UniqueSessionIdManager
+
+extranonce2sz = 4
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+# Linux-specific: tune keepalive
+sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)    # start after 60s idle
+sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)   # send probe every 10s
+sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)      # max 6 failed probes → kill
+
+class StratumError(BaseException):
+	def __init__(self, errno, msg, tb = True):
+		self.StratumErrNo = errno
+		self.StratumErrMsg = msg
+		self.StratumTB = tb
+
+StratumCodes = {
+	'stale-prevblk': 21,
+	'stale-work': 21,
+	'duplicate': 22,
+	'H-not-zero': 23,
+	'high-hash': 23,
+}
+
+class StratumHandler(networkserver.SocketHandler):
+	logger = logging.getLogger('StratumHandler')
+	
+	def __init__(self, *a, **ka):
+		super().__init__(*a, **ka)
+		self.remoteHost = self.addr[0]
+		self.changeTask(None)
+		self.server.schedule(self.sendLicenseNotice, time() + 4, errHandler=self)
+		self.set_terminator(b"\n")
+		self.Usernames = {}
+		self.lastBDiff = None
+		self.JobTargets = collections.OrderedDict()
+		self.UA = None
+		self.LicenseSent = agplcompliance._SourceFiles is None
+	
+	def sendReply(self, ob):
+		return self.push(json.dumps(ob).encode('ascii') + b"\n")
+
+	def _primary_username(self):
+		if not self.Usernames:
+			return None
+		return next(iter(self.Usernames))
+	
+	def found_terminator(self):
+		try:
+			inbuf = b"".join(self.incoming).decode('ascii')
+		except:
+			self.boot()
+			return
+		self.incoming = []
+		
+		if not inbuf:
+			return
+		
+		try:
+			rpc = json.loads(inbuf)
+		except ValueError:
+			self.boot()
+			return
+		if 'method' not in rpc:
+			# Assume this is a reply to our request
+			funcname = '_stratumreply_%s' % (rpc['id'],)
+			if not hasattr(self, funcname):
+				return
+			try:
+				getattr(self, funcname)(rpc)
+			except BaseException as e:
+				self.logger.debug(traceback.format_exc())
+			return
+		funcname = '_stratum_%s' % (rpc['method'].replace('.', '_'),)
+		if not hasattr(self, funcname):
+			self.sendReply({
+				'error': [-3, "Method '%s' not found" % (rpc['method'],), None],
+				'id': rpc['id'],
+				'result': None,
+			})
+			return
+		
+		try:
+			rv = getattr(self, funcname)(*rpc['params'])
+		except StratumError as e:
+			self.sendReply({
+				'error': (e.StratumErrNo, e.StratumErrMsg, traceback.format_exc() if e.StratumTB else None),
+				'id': rpc['id'],
+				'result': None,
+			})
+			return
+		except BaseException as e:
+			fexc = traceback.format_exc()
+			self.sendReply({
+				'error': (20, str(e), fexc),
+				'id': rpc['id'],
+				'result': None,
+			})
+			if not hasattr(e, 'StratumQuiet'):
+				self.logger.debug(fexc)
+			return
+		
+		if rpc['id'] is None:
+			return
+		
+		self.sendReply({
+			'error': None,
+			'id': rpc['id'],
+			'result': rv,
+		})
+	
+	def sendLicenseNotice(self):
+		if self.fd == -1:
+			return
+		if not self.LicenseSent:
+			self.sendReply({
+				'id': 8,
+				'method': 'client.show_message',
+				'params': ('This stratum server is licensed under the GNU Affero General Public License, version 3. You may download source code over stratum using the server.get_source method.',),
+			})
+		self.LicenseSent = True
+	
+	def sendJob(self):
+		target = self.server.defaultTarget
+		username = self._primary_username()
+		if len(self.Usernames) == 1:
+			dtarget = self.server.getTarget(username, time())
+			if not dtarget is None:
+				target = dtarget
+		bdiff = target2bdiff(target)
+		if self.lastBDiff != bdiff:
+			self.sendReply({
+				'id': None,
+				'method': 'mining.set_difficulty',
+				'params': [
+					bdiff
+				],
+			})
+			self.lastBDiff = bdiff
+		job_bytes = self.server.JobBytes
+		if username:
+			try:
+				job_bytes = self.server.getJobBytesForUsername(username)
+			except:
+				self.logger.debug('Falling back to shared stratum job for %r\n%s' % (username, traceback.format_exc()))
+		self.push(job_bytes)
+		if len(self.JobTargets) > 4:
+			self.JobTargets.popitem(False)
+		self.JobTargets[self.server.JobId] = target
+	
+	def requestStratumUA(self):
+		self.sendReply({
+			'id': 7,
+			'method': 'client.get_version',
+			'params': (),
+		})
+	
+	def _stratumreply_7(self, rpc):
+		self.UA = rpc.get('result') or rpc
+	
+	def _stratum_mining_subscribe(self, UA = None, xid = None):
+		if not UA is None:
+			self.UA = UA
+		if not hasattr(self, '_sid'):
+			self._sid = UniqueSessionIdManager.get()
+		if self.server._Clients.get(self._sid) not in (self, None):
+			del self._sid
+			raise self.server.RaiseRedFlags(RuntimeError('issuing duplicate sessionid'))
+		xid = struct.pack('=I', self._sid)  # NOTE: Assumes sessionids are 4 bytes
+		self.extranonce1 = xid
+		xid = b2a_hex(xid).decode('ascii')
+		self.server._Clients[id(self)] = self
+		self.changeTask(self.sendJob, 0)
+		return [
+			[
+				['mining.notify', '%s1' % (xid,)],
+				['mining.set_difficulty', '%s2' % (xid,)],
+			],
+			xid,
+			extranonce2sz,
+		]
+	
+	def close(self):
+		if hasattr(self, '_sid'):
+			UniqueSessionIdManager.put(self._sid)
+			delattr(self, '_sid')
+		try:
+			del self.server._Clients[id(self)]
+		except:
+			pass
+		super().close()
+	
+	def _stratum_mining_submit(self, username, jobid, extranonce2, ntime, nonce):
+		if username not in self.Usernames:
+			raise StratumError(24, 'unauthorized-user', False)
+		share = {
+			'username': username,
+			'remoteHost': self.remoteHost,
+			'jobid': jobid,
+			'extranonce1': self.extranonce1,
+			'extranonce2': bytes.fromhex(extranonce2)[:extranonce2sz],
+			'ntime': bytes.fromhex(ntime),
+			'nonce': bytes.fromhex(nonce),
+			'userAgent': self.UA,
+			'submitProtocol': 'stratum',
+		}
+		if jobid in self.JobTargets:
+			share['target'] = self.JobTargets[jobid]
+		try:
+			self.server.receiveShare(share)
+		except RejectedShare as rej:
+			rej = str(rej)
+			errno = StratumCodes.get(rej, 20)
+			raise StratumError(errno, rej, False)
+		return True
+	
+	def _stratum_mining_authorize(self, username, password = None):
+		try:
+			valid = self.server.checkAuthentication(username, password)
+		except:
+			valid = False
+		if valid:
+			self.Usernames[username] = None
+			self.changeTask(self.requestStratumUA, 0)
+			# Stratum subscribe happens before authorize, so the first broadcast job
+			# is necessarily generic. Push a miner-specific job immediately after a
+			# successful authorize so AuxPoW child templates can follow this solver.
+			self.changeTask(self.sendJob, 0)
+		return valid
+	
+	def _stratum_mining_get_transactions(self, jobid):
+		try:
+			(MC, wld) = self.server.getExistingStratumJob(jobid, username=self._primary_username())
+		except KeyError as e:
+			e.StratumQuiet = True
+			raise
+		(height, merkleTree, cb, prevBlock, bits) = MC[:5]
+		return list(b2a_hex(txn.data).decode('ascii') for txn in merkleTree.data[1:])
+	
+	def _stratum_server_get_source(self, path = ''):
+		s = agplcompliance.get_source(path.encode('utf8'))
+		if s:
+			s = list(s)
+			s[1] = s[1].decode('latin-1')
+		return s
+
+class StratumServer(networkserver.AsyncSocketServer):
+	logger = logging.getLogger('StratumServer')
+	
+	waker = True
+	schMT = True
+	
+	extranonce1null = struct.pack('=I', 0)  # NOTE: Assumes sessionids are 4 bytes
+	
+	def __init__(self, *a, **ka):
+		ka.setdefault('RequestHandlerClass', StratumHandler)
+		super().__init__(*a, **ka)
+		
+		self._Clients = {}
+		self._JobId = 0
+		self.JobId = '%d' % (time(),)
+		self.JobWantClear = False
+		self.JobForceClean = False
+		self.WakeRequest = None
+		self.WorkUpdateInterval = 55
+		self.UpdateTask = None
+		self._PendingQuickUpdates = set()
+	
+	def checkAuthentication(self, username, password):
+		return True
+
+	def _buildJobBytes(self, JobId, username = None, wantClear = False, forceClean = False):
+		(MC, wld) = self.getStratumJob(JobId, username=username, wantClear=wantClear)
+		(height, merkleTree, cb, prevBlock, bits) = MC[:5]
+		
+		if len(cb) > 96 - len(self.extranonce1null) - 4:
+			raise ValueError('coinbase too big for stratum')
+		
+		txn = deepcopy(merkleTree.data[0])
+		cb += self.extranonce1null + b'Eloi'
+		txn.setCoinbase(cb)
+		txn.assemble()
+		pos = txn.data.index(cb) + len(cb)
+		
+		steps = list(b2a_hex(h).decode('ascii') for h in merkleTree._steps)
+		return json.dumps({
+			'id': None,
+			'method': 'mining.notify',
+			'params': [
+				JobId,
+				b2a_hex(swap32(prevBlock)).decode('ascii'),
+				b2a_hex(txn.data[:pos - len(self.extranonce1null) - 4]).decode('ascii'),
+				b2a_hex(txn.data[pos:]).decode('ascii'),
+				steps,
+				'%08x' % (merkleTree.MP['version'],),
+				b2a_hex(bits[::-1]).decode('ascii'),
+				b2a_hex(struct.pack('>L', int(time()))).decode('ascii'),
+				forceClean
+			],
+		}).encode('ascii') + b"\n"
+
+	def getJobBytesForUsername(self, username):
+		return self._buildJobBytes(self.JobId, username=username, wantClear=self.JobWantClear, forceClean=self.JobForceClean)
+	
+	def updateJobOnly(self, wantClear = False, forceClean = False):
+		self._JobId += 1
+		JobId = '%d %d' % (time(), self._JobId)
+		forceClean = forceClean or not self.IsJobValid(self.JobId)
+		
+		try:
+			self.JobBytes = self._buildJobBytes(JobId, username=None, wantClear=wantClear, forceClean=forceClean)
+		except ValueError:
+			if not self.rejecting:
+				self.logger.warning('Coinbase too big for stratum: disabling')
+			self.rejecting = True
+			self.boot_all()
+			self.UpdateTask = self.schedule(self.updateJob, time() + 10)
+			return
+		if self.rejecting:
+			self.rejecting = False
+			self.logger.info('Coinbase small enough for stratum again: reenabling')
+		
+		self.JobWantClear = wantClear
+		self.JobForceClean = forceClean
+		self.JobId = JobId
+		
+	def updateJob(self, wantClear = False):
+		if self.UpdateTask:
+			try:
+				self.rmSchedule(self.UpdateTask)
+			except:
+				pass
+		
+		self.updateJobOnly(wantClear=wantClear)
+		
+		self.WakeRequest = 1
+		self.wakeup()
+		
+		self.UpdateTask = self.schedule(self.updateJob, time() + self.WorkUpdateInterval)
+	
+	def doQuickUpdate(self):
+		PQU = self._PendingQuickUpdates
+		self._PendingQuickUpdates = set()
+		QUC = 0
+		for ic in list(self._Clients.values()):
+			if PQU.intersection(ic.Usernames):
+				if self.JobId in ic.JobTargets:
+					self.updateJobOnly(wantClear=True, forceClean=True)
+				try:
+					ic.sendJob()
+					QUC += 1
+				except socket.error:
+					# Ignore socket errors; let the main event loop take care of them later
+					pass
+				except:
+					self.logger.debug('Error sending quickupdate job:\n' + traceback.format_exc())
+		if QUC:
+			self.logger.debug("Quickupdated %d clients" % (QUC,))
+	
+	def quickDifficultyUpdate(self, username):
+		self._PendingQuickUpdates.add(username)
+		self.schedule(self.doQuickUpdate, time())
+	
+	def pre_schedule(self):
+		if self.WakeRequest:
+			self._wakeNodes()
+	
+	def _wakeNodes(self):
+		self.WakeRequest = None
+		C = self._Clients
+		if not C:
+			self.logger.debug('Nobody to wake up')
+			return
+		OC = len(C)
+		self.logger.debug("%d clients to wake up..." % (OC,))
+		
+		now = time()
+		
+		for ic in list(C.values()):
+			try:
+				ic.sendJob()
+			except socket.error:
+				OC -= 1
+				# Ignore socket errors; let the main event loop take care of them later
+			except:
+				OC -= 1
+				self.logger.debug('Error sending new job:\n' + traceback.format_exc())
+		
+		self.logger.debug('New job sent to %d clients in %.3f seconds' % (OC, time() - now))
+	
+	def getTarget(*a, **ka):
+		return None

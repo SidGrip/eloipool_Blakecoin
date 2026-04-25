@@ -1,0 +1,13 @@
+*.pyc
+*.pyo
+*~
+*.bak
+config*.py
+*.patch
+.*.kate-swp
+midstate.so
+*.orig
+*.rej
+eloipool.worklog
+__pycache__/
+.pytest_cache/

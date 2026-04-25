@@ -1,0 +1,28 @@
+[Unit]
+Description=BlakeStream Blakecoin stratum pool (Eloipool 15.21)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@POOL_USER@@
+Group=@@POOL_GROUP@@
+WorkingDirectory=@@INSTALL_ROOT@@/eloipool
+EnvironmentFile=-@@INSTALL_ROOT@@/config/pool.env
+Environment=PYTHONPATH=@@INSTALL_ROOT@@/config:@@INSTALL_ROOT@@/eloipool/vendor:@@INSTALL_ROOT@@/eloipool:@@INSTALL_ROOT@@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@@INSTALL_ROOT@@/venv/bin/python -u eloipool.py
+StandardInput=null
+StandardOutput=append:@@LOG_ROOT@@/eloipool.stdout
+StandardError=append:@@LOG_ROOT@@/eloipool.stderr
+Restart=always
+RestartSec=5
+
+# Soft hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
